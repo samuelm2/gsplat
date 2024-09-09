@@ -51,6 +51,7 @@ class DownloadData:
             str(self.save_dir / dataset_rename_map[dataset]),
             urls[dataset],
         ]
+        print(download_command)
         try:
             subprocess.run(download_command, check=True)
             print("File file downloaded succesfully.")

@@ -155,6 +155,7 @@ class Parser:
             image_dir_suffix = ""
         colmap_image_dir = os.path.join(data_dir, "images")
         image_dir = os.path.join(data_dir, "images" + image_dir_suffix)
+        print(image_dir)
         for d in [image_dir, colmap_image_dir]:
             if not os.path.exists(d):
                 raise ValueError(f"Image folder {d} does not exist.")

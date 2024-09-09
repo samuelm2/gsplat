@@ -1,6 +1,7 @@
 import json
 import math
 import os
+from pathlib import Path
 import time
 from dataclasses import dataclass, field
 from typing import Dict, List, Optional, Tuple
@@ -21,6 +22,13 @@ from torch.utils.tensorboard import SummaryWriter
 from torchmetrics.image import PeakSignalNoiseRatio, StructuralSimilarityIndexMeasure
 from torchmetrics.image.lpip import LearnedPerceptualImagePatchSimilarity
 from utils import AppearanceOptModule, CameraOptModule, set_random_seed
+import sys
+
+# path_root = Path(__file__).parent.parent
+# print(path_root)
+# sys.path.append(str(os.path.join(path_root, 'gsplat')))
+
+from plyfile import PlyData, PlyElement
 
 from gsplat.rendering import rasterization
 from gsplat.strategy import MCMCStrategy
@@ -65,6 +73,9 @@ class Config:
     # Steps to save the model
     save_steps: List[int] = field(default_factory=lambda: [7_000, 30_000])
 
+    # Save splat as ply 
+    save_ply_path: Optional[str] = None
+
     # Initialization strategy
     init_type: str = "sfm"
     # Initial number of GSs. Ignored if using sfm
@@ -88,7 +99,7 @@ class Config:
     far_plane: float = 1e10
 
     # Maximum number of GSs.
-    cap_max: int = 1_000_000
+    cap_max: int = 1_200_000
     # MCMC samping noise learning rate
     noise_lr = 5e5
     # Opacity regularization
@@ -113,10 +124,10 @@ class Config:
     antialiased: bool = False
 
     # Use random background for training to discourage transparency
-    random_bkgd: bool = False
+    random_bkgd: bool = True
 
     # Enable camera optimization.
-    pose_opt: bool = False
+    pose_opt: bool = True
     # Learning rate for camera optimization
     pose_opt_lr: float = 1e-5
     # Regularization for camera optimization as weight decay
@@ -125,7 +136,7 @@ class Config:
     pose_noise: float = 0.0
 
     # Enable appearance optimization. (experimental)
-    app_opt: bool = False
+    app_opt: bool = True
     # Appearance embedding dimension
     app_embed_dim: int = 16
     # Learning rate for appearance optimization
@@ -134,7 +145,7 @@ class Config:
     app_opt_reg: float = 1e-6
 
     # Enable exposure optimization. (experimental)
-    exp_opt: bool = False
+    exp_opt: bool = True
     # Weight for total variation loss
     exp_tv_lambda: float = 10.0
 
@@ -291,6 +302,42 @@ class Runner:
                 render_fn=self._viewer_render_fn,
                 mode="training",
             )
+
+                    # Experimental
+    def construct_list_of_attributes(self):
+        l = ['x', 'y', 'z', 'nx', 'ny', 'nz']
+        # All channels except the 3 DC
+        for i in range(self.splats["sh0"].shape[1]*self.splats["sh0"].shape[2]):
+            l.append('f_dc_{}'.format(i))
+        for i in range(self.splats["shN"].shape[1]*self.splats["shN"].shape[2]):
+            l.append('f_rest_{}'.format(i))
+        l.append('opacity')
+        for i in range(self.splats["scales"].shape[1]):
+            l.append('scale_{}'.format(i))
+        for i in range(self.splats["quats"].shape[1]):
+            l.append('rot_{}'.format(i))
+        return l
+
+    # Experimental
+    @torch.no_grad()
+    def save_ply(self, path):
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+
+        xyz = self.splats["means"].detach().cpu().numpy()
+        normals = np.zeros_like(xyz)
+        f_dc = self.splats["sh0"].detach().transpose(1, 2).flatten(start_dim=1).contiguous().cpu().numpy()
+        f_rest = self.splats["shN"].detach().transpose(1, 2).flatten(start_dim=1).contiguous().cpu().numpy()
+        opacities = self.splats["opacities"].detach().unsqueeze(-1).cpu().numpy()
+        scale = self.splats["scales"].detach().cpu().numpy()
+        rotation = self.splats["quats"].detach().cpu().numpy()
+
+        dtype_full = [(attribute, 'f4') for attribute in self.construct_list_of_attributes()]
+
+        elements = np.empty(xyz.shape[0], dtype=dtype_full)
+        attributes = np.concatenate((xyz, normals, f_dc, f_rest, opacities, scale, rotation), axis=1)
+        elements[:] = list(map(tuple, attributes))
+        el = PlyElement.describe(elements, 'vertex')
+        PlyData([el]).write(path)
 
     def rasterize_splats(
         self,
@@ -768,6 +815,11 @@ def main(cfg: Config):
         runner.render_traj(step=ckpt["step"])
     else:
         runner.train()
+
+    if cfg.save_ply_path:
+        print(f"Saving ply at {cfg.save_ply_path}")
+        runner.save_ply(cfg.save_ply_path)
+
 
     if not cfg.disable_viewer:
         print("Viewer running... Ctrl+C to exit.")

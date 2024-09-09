@@ -21,6 +21,10 @@ from torchmetrics.image import PeakSignalNoiseRatio, StructuralSimilarityIndexMe
 from torchmetrics.image.lpip import LearnedPerceptualImagePatchSimilarity
 from utils import AppearanceOptModule, CameraOptModule, knn, rgb_to_sh, set_random_seed
 
+from plyfile import PlyData, PlyElement
+
+# from gsplat.compression import PngCompression
+# from gsplat.distributed import cli
 from gsplat.rendering import rasterization
 from gsplat.strategy import DefaultStrategy
 
@@ -52,6 +56,9 @@ class Config:
     batch_size: int = 1
     # A global factor to scale the number of training steps
     steps_scaler: float = 1.0
+
+    # Save splat as ply 
+    save_ply_path: Optional[str] = None
 
     # Number of training steps
     max_steps: int = 30_000
@@ -765,6 +772,42 @@ class Runner:
             radius_clip=3.0,  # skip GSs that have small image radius (in pixels)
         )  # [1, H, W, 3]
         return render_colors[0].cpu().numpy()
+    
+        # Experimental
+    def construct_list_of_attributes(self):
+        l = ['x', 'y', 'z', 'nx', 'ny', 'nz']
+        # All channels except the 3 DC
+        for i in range(self.splats["sh0"].shape[1]*self.splats["sh0"].shape[2]):
+            l.append('f_dc_{}'.format(i))
+        for i in range(self.splats["shN"].shape[1]*self.splats["shN"].shape[2]):
+            l.append('f_rest_{}'.format(i))
+        l.append('opacity')
+        for i in range(self.splats["scales"].shape[1]):
+            l.append('scale_{}'.format(i))
+        for i in range(self.splats["quats"].shape[1]):
+            l.append('rot_{}'.format(i))
+        return l
+
+    # Experimental
+    @torch.no_grad()
+    def save_ply(self, path):
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+
+        xyz = self.splats["means"].detach().cpu().numpy()
+        normals = np.zeros_like(xyz)
+        f_dc = self.splats["sh0"].detach().transpose(1, 2).flatten(start_dim=1).contiguous().cpu().numpy()
+        f_rest = self.splats["shN"].detach().transpose(1, 2).flatten(start_dim=1).contiguous().cpu().numpy()
+        opacities = self.splats["opacities"].detach().unsqueeze(-1).cpu().numpy()
+        scale = self.splats["scales"].detach().cpu().numpy()
+        rotation = self.splats["quats"].detach().cpu().numpy()
+
+        dtype_full = [(attribute, 'f4') for attribute in self.construct_list_of_attributes()]
+
+        elements = np.empty(xyz.shape[0], dtype=dtype_full)
+        attributes = np.concatenate((xyz, normals, f_dc, f_rest, opacities, scale, rotation), axis=1)
+        elements[:] = list(map(tuple, attributes))
+        el = PlyElement.describe(elements, 'vertex')
+        PlyData([el]).write(path)
 
 
 def main(cfg: Config):
@@ -780,8 +823,12 @@ def main(cfg: Config):
     else:
         runner.train()
 
+    if cfg.save_ply_path:
+        print(f"Saving ply at {cfg.save_ply_path}")
+        runner.save_ply(cfg.save_ply_path)
+
     if not cfg.disable_viewer:
-        print("Viewer running... Ctrl+C to exit.")
+        print("Viewer running... Ctrl+C to exit.", flush=True)
         time.sleep(1000000)
 
 
