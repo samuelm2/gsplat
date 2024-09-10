@@ -35,6 +35,7 @@ from gsplat.strategy import DefaultStrategy, MCMCStrategy
 from gsplat.util.lib_bilagrid import BilateralGrid, slice
 from gsplat.util.color_utils import color_correct
 
+from plyfile import PlyData, PlyElement
 
 @dataclass
 class Config:
@@ -64,6 +65,9 @@ class Config:
 
     # Port for the viewer server
     port: int = 8080
+
+    # Save splat as ply 
+    save_ply_path: Optional[str] = None
 
     # Batch size for training. Learning rates are scaled automatically
     batch_size: int = 1
@@ -968,6 +972,27 @@ class Runner:
             radius_clip=3.0,  # skip GSs that have small image radius (in pixels)
         )  # [1, H, W, 3]
         return render_colors[0].cpu().numpy()
+
+    # Experimental
+    @torch.no_grad()
+    def save_ply(self, path):
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+
+        xyz = self.splats["means"].detach().cpu().numpy()
+        normals = np.zeros_like(xyz)
+        f_dc = self.splats["sh0"].detach().transpose(1, 2).flatten(start_dim=1).contiguous().cpu().numpy()
+        f_rest = self.splats["shN"].detach().transpose(1, 2).flatten(start_dim=1).contiguous().cpu().numpy()
+        opacities = self.splats["opacities"].detach().unsqueeze(-1).cpu().numpy()
+        scale = self.splats["scales"].detach().cpu().numpy()
+        rotation = self.splats["quats"].detach().cpu().numpy()
+
+        dtype_full = [(attribute, 'f4') for attribute in self.construct_list_of_attributes()]
+
+        elements = np.empty(xyz.shape[0], dtype=dtype_full)
+        attributes = np.concatenate((xyz, normals, f_dc, f_rest, opacities, scale, rotation), axis=1)
+        elements[:] = list(map(tuple, attributes))
+        el = PlyElement.describe(elements, 'vertex')
+        PlyData([el]).write(path)
 
 
 def main(local_rank: int, world_rank, world_size: int, cfg: Config):
