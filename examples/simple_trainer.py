@@ -15,7 +15,11 @@ import tyro
 import viser
 import yaml
 from datasets.colmap import Dataset, Parser
-from datasets.traj import generate_interpolated_path, generate_ellipse_path_z
+from datasets.traj import (
+    generate_interpolated_path,
+    generate_ellipse_path_z,
+    generate_spiral_path,
+)
 from torch import Tensor
 from torch.nn.parallel import DistributedDataParallel as DDP
 from torch.utils.tensorboard import SummaryWriter
@@ -28,7 +32,10 @@ from gsplat.compression import PngCompression
 from gsplat.distributed import cli
 from gsplat.rendering import rasterization
 from gsplat.strategy import DefaultStrategy, MCMCStrategy
+from gsplat.util.lib_bilagrid import BilateralGrid, slice
+from gsplat.util.color_utils import color_correct
 
+from plyfile import PlyData, PlyElement
 
 @dataclass
 class Config:
@@ -58,6 +65,9 @@ class Config:
 
     # Port for the viewer server
     port: int = 8080
+
+    # Save splat as ply 
+    save_ply_path: Optional[str] = None
 
     # Batch size for training. Learning rates are scaled automatically
     batch_size: int = 1
@@ -129,6 +139,11 @@ class Config:
     app_opt_lr: float = 1e-3
     # Regularization for appearance optimization as weight decay
     app_opt_reg: float = 1e-6
+
+    # Enable exposure optimization. (experimental)
+    exp_opt: bool = False
+    # Weight for total variation loss
+    exp_tv_lambda: float = 10.0
 
     # Enable depth loss. (experimental)
     depth_loss: bool = False
@@ -368,6 +383,18 @@ class Runner:
             if world_size > 1:
                 self.app_module = DDP(self.app_module)
 
+        self.exp_optimizers = []
+        if cfg.exp_opt:
+            self.exp_grids = BilateralGrid(len(self.trainset)).to(self.device)
+            self.exp_optimizers = [
+                torch.optim.Adam(
+                    self.exp_grids.parameters(),
+                    lr=0.001 * math.sqrt(cfg.batch_size),
+                    betas=[0.9, 0.99],
+                    eps=1e-15,
+                ),
+            ]
+
         # Losses & Metrics.
         self.ssim = StructuralSimilarityIndexMeasure(data_range=1.0).to(self.device)
         self.psnr = PeakSignalNoiseRatio(data_range=1.0).to(self.device)
@@ -472,6 +499,12 @@ class Runner:
                     self.pose_optimizers[0], gamma=0.01 ** (1.0 / max_steps)
                 )
             )
+        if cfg.exp_opt:
+            schedulers.append(
+                torch.optim.lr_scheduler.ExponentialLR(
+                    self.exp_optimizers[0], gamma=0.01 ** (1.0 / max_steps)
+                )
+            )
 
         trainloader = torch.utils.data.DataLoader(
             self.trainset,
@@ -538,6 +571,18 @@ class Runner:
             else:
                 colors, depths = renders, None
 
+            if cfg.exp_opt:
+                grid_x, grid_y = torch.meshgrid(
+                    torch.arange(width, device="cuda").float(),
+                    torch.arange(height, device="cuda").float(),
+                    indexing="xy",
+                )
+                pix_xy = torch.stack([grid_x, grid_y], dim=-1)
+                pix_xy = pix_xy.reshape(1, height, width, 2) + 0.5
+                pix_xy[..., 0] /= width
+                pix_xy[..., 1] /= height
+                colors = slice(self.exp_grids, pix_xy, colors, image_ids)["rgb"]
+
             if cfg.random_bkgd:
                 bkgd = torch.rand(1, 3, device=device)
                 colors = colors + bkgd * (1.0 - alphas)
@@ -575,6 +620,9 @@ class Runner:
                 disp_gt = 1.0 / depths_gt  # [1, M]
                 depthloss = F.l1_loss(disp, disp_gt) * self.scene_scale
                 loss += depthloss * cfg.depth_lambda
+            if cfg.exp_opt:
+                tvloss = self.exp_grids.tv_loss()
+                loss += cfg.exp_tv_lambda * tvloss
 
             # regularizations
             if cfg.opacity_reg > 0.0:
@@ -618,6 +666,8 @@ class Runner:
                 self.writer.add_scalar("train/mem", mem, step)
                 if cfg.depth_loss:
                     self.writer.add_scalar("train/depthloss", depthloss.item(), step)
+                if cfg.exp_opt:
+                    self.writer.add_scalar("train/tvloss", tvloss.item(), step)
                 if cfg.tb_save_image:
                     canvas = torch.cat([pixels, colors], dim=2).detach().cpu().numpy()
                     canvas = canvas.reshape(-1, *canvas.shape[2:])
@@ -699,6 +749,9 @@ class Runner:
             for optimizer in self.app_optimizers:
                 optimizer.step()
                 optimizer.zero_grad(set_to_none=True)
+            for optimizer in self.exp_optimizers:
+                optimizer.step()
+                optimizer.zero_grad(set_to_none=True)
             for scheduler in schedulers:
                 scheduler.step()
 
@@ -735,7 +788,7 @@ class Runner:
             self.valset, batch_size=1, shuffle=False, num_workers=1
         )
         ellipse_time = 0
-        metrics = {"psnr": [], "ssim": [], "lpips": []}
+        metrics = {"psnr": [], "cc_psnr": [], "ssim": [], "lpips": []}
         for i, data in enumerate(valloader):
             camtoworlds = data["camtoworld"].to(device)
             Ks = data["K"].to(device)
@@ -768,9 +821,13 @@ class Runner:
                     canvas,
                 )
 
+                cc_colors = color_correct(colors, pixels)
+
                 pixels = pixels.permute(0, 3, 1, 2)  # [1, 3, H, W]
                 colors = colors.permute(0, 3, 1, 2)  # [1, 3, H, W]
+                cc_colors = cc_colors.permute(0, 3, 1, 2)  # [1, 3, H, W]
                 metrics["psnr"].append(self.psnr(colors, pixels))
+                metrics["cc_psnr"].append(self.psnr(cc_colors, pixels))
                 metrics["ssim"].append(self.ssim(colors, pixels))
                 metrics["lpips"].append(self.lpips(colors, pixels))
 
@@ -778,16 +835,18 @@ class Runner:
             ellipse_time /= len(valloader)
 
             psnr = torch.stack(metrics["psnr"]).mean()
+            cc_psnr = torch.stack(metrics["cc_psnr"]).mean()
             ssim = torch.stack(metrics["ssim"]).mean()
             lpips = torch.stack(metrics["lpips"]).mean()
             print(
-                f"PSNR: {psnr.item():.3f}, SSIM: {ssim.item():.4f}, LPIPS: {lpips.item():.3f} "
+                f"PSNR: {psnr.item():.3f}, CC PSNR: {cc_psnr.item():.3f}, SSIM: {ssim.item():.4f}, LPIPS: {lpips.item():.3f} "
                 f"Time: {ellipse_time:.3f}s/image "
                 f"Number of GS: {len(self.splats['means'])}"
             )
             # save stats as json
             stats = {
                 "psnr": psnr.item(),
+                "cc_psnr": cc_psnr.item(),
                 "ssim": ssim.item(),
                 "lpips": lpips.item(),
                 "ellipse_time": ellipse_time,
@@ -817,6 +876,12 @@ class Runner:
             camtoworlds_all = generate_ellipse_path_z(
                 camtoworlds_all, height=height
             )  # [N, 3, 4]
+        elif cfg.render_traj_path == "spiral":
+            camtoworlds_all = generate_spiral_path(
+                camtoworlds_all,
+                bounds=self.parser.bounds * self.scene_scale,
+                spiral_scale_r=self.parser.extconf["spiral_radius_scale"],
+            )
         else:
             raise ValueError(
                 f"Render trajectory type not supported: {cfg.render_traj_path}"
@@ -908,6 +973,42 @@ class Runner:
         )  # [1, H, W, 3]
         return render_colors[0].cpu().numpy()
 
+    # Experimental
+    def construct_list_of_attributes(self):
+        l = ['x', 'y', 'z', 'nx', 'ny', 'nz']
+        # All channels except the 3 DC
+        for i in range(self.splats["sh0"].shape[1]*self.splats["sh0"].shape[2]):
+            l.append('f_dc_{}'.format(i))
+        for i in range(self.splats["shN"].shape[1]*self.splats["shN"].shape[2]):
+            l.append('f_rest_{}'.format(i))
+        l.append('opacity')
+        for i in range(self.splats["scales"].shape[1]):
+            l.append('scale_{}'.format(i))
+        for i in range(self.splats["quats"].shape[1]):
+            l.append('rot_{}'.format(i))
+        return l
+
+    # Experimental
+    @torch.no_grad()
+    def save_ply(self, path):
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+
+        xyz = self.splats["means"].detach().cpu().numpy()
+        normals = np.zeros_like(xyz)
+        f_dc = self.splats["sh0"].detach().transpose(1, 2).flatten(start_dim=1).contiguous().cpu().numpy()
+        f_rest = self.splats["shN"].detach().transpose(1, 2).flatten(start_dim=1).contiguous().cpu().numpy()
+        opacities = self.splats["opacities"].detach().unsqueeze(-1).cpu().numpy()
+        scale = self.splats["scales"].detach().cpu().numpy()
+        rotation = self.splats["quats"].detach().cpu().numpy()
+
+        dtype_full = [(attribute, 'f4') for attribute in self.construct_list_of_attributes()]
+
+        elements = np.empty(xyz.shape[0], dtype=dtype_full)
+        attributes = np.concatenate((xyz, normals, f_dc, f_rest, opacities, scale, rotation), axis=1)
+        elements[:] = list(map(tuple, attributes))
+        el = PlyElement.describe(elements, 'vertex')
+        PlyData([el]).write(path)
+
 
 def main(local_rank: int, world_rank, world_size: int, cfg: Config):
     if world_size > 1 and not cfg.disable_viewer:
@@ -932,6 +1033,9 @@ def main(local_rank: int, world_rank, world_size: int, cfg: Config):
             runner.run_compression(step=step)
     else:
         runner.train()
+
+    print(f"Saving ply at path {cfg.save_ply_path}")
+    runner.save_ply(cfg.save_ply_path)
 
     if not cfg.disable_viewer:
         print("Viewer running... Ctrl+C to exit.")

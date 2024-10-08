@@ -24,6 +24,7 @@ eggs/
 lib64/
 parts/
 sdist/
+create/
 var/
 wheels/
 *.egg-info/
