@@ -88,7 +88,7 @@ class Config:
     # Initial extent of GSs as a multiple of the camera extent. Ignored if using sfm
     init_extent: float = 3.0
     # Degree of spherical harmonics
-    sh_degree: int = 3
+    sh_degree: int = 2
     # Turn on another SH degree every this steps
     sh_degree_interval: int = 1000
     # Initial opacity of GS
@@ -1076,6 +1076,10 @@ if __name__ == "__main__":
         ),
     }
     cfg = tyro.extras.overridable_config_cli(configs)
+    # If config is MCMC, set refine_every to 250
+    if isinstance(cfg.strategy, MCMCStrategy):
+        cfg.strategy.refine_every = 250
+    
     cfg.adjust_steps(cfg.steps_scaler)
 
     # try import extra dependencies
