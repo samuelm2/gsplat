@@ -32,8 +32,8 @@ from gsplat.compression import PngCompression
 from gsplat.distributed import cli
 from gsplat.rendering import rasterization
 from gsplat.strategy import DefaultStrategy, MCMCStrategy
-from gsplat.util.lib_bilagrid import BilateralGrid, slice
-from gsplat.util.color_utils import color_correct
+from lib_bilagrid import BilateralGrid, slice
+from color_utils import color_correct
 
 from plyfile import PlyData, PlyElement
 
