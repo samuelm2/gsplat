@@ -1171,7 +1171,7 @@ if __name__ == "__main__":
     cfg = tyro.extras.overridable_config_cli(configs)
     # If config is MCMC, set refine_every to 250
     if isinstance(cfg.strategy, MCMCStrategy):
-        cfg.strategy.refine_every = 250
+        cfg.strategy.refine_every = 200
     
     cfg.adjust_steps(cfg.steps_scaler)
 
