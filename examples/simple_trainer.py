@@ -1130,9 +1130,9 @@ def main(local_rank: int, world_rank, world_size: int, cfg: Config):
     print(f"Saving ply at path {cfg.save_ply_path}")
     runner.save_ply(cfg.save_ply_path)
 
-    if not cfg.disable_viewer:
-        print("Viewer running... Ctrl+C to exit.")
-        time.sleep(1000000)
+    # if not cfg.disable_viewer:
+    #     print("Viewer running... Ctrl+C to exit.")
+    #     time.sleep(1000000)
 
 
 if __name__ == "__main__":
