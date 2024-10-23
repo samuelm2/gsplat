@@ -203,6 +203,17 @@ def generate_ellipse_path_y(
     return np.stack([viewmatrix(p - center, up, p) for p in positions])
 
 
+def poses_to_points(poses, dist):
+    """Converts from pose matrices to (position, lookat, up) format."""
+    pos = poses[:, :3, -1]
+    lookat = poses[:, :3, -1] - dist * poses[:, :3, 2]
+    up = poses[:, :3, -1] + dist * poses[:, :3, 1]
+    print("POS: ", pos)
+    print("LOOKAT: ", lookat)
+    print("UP: ", up)
+    return np.stack([pos, lookat, up], 1)
+
+
 def generate_interpolated_path(
     poses: np.ndarray,
     n_interp: int,
@@ -225,12 +236,6 @@ def generate_interpolated_path(
       Array of new camera poses with shape (n_interp * (n - 1), 3, 4).
     """
 
-    def poses_to_points(poses, dist):
-        """Converts from pose matrices to (position, lookat, up) format."""
-        pos = poses[:, :3, -1]
-        lookat = poses[:, :3, -1] - dist * poses[:, :3, 2]
-        up = poses[:, :3, -1] + dist * poses[:, :3, 1]
-        return np.stack([pos, lookat, up], 1)
 
     def points_to_poses(points):
         """Converts from (position, lookat, up) format to pose matrices."""

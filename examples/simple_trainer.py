@@ -19,6 +19,7 @@ from datasets.traj import (
     generate_interpolated_path,
     generate_ellipse_path_z,
     generate_spiral_path,
+    poses_to_points,
 )
 from torch import Tensor
 from torch.nn.parallel import DistributedDataParallel as DDP
@@ -1017,6 +1018,17 @@ def main(local_rank: int, world_rank, world_size: int, cfg: Config):
             print("Viewer is disabled in distributed training.")
 
     runner = Runner(local_rank, world_rank, world_size, cfg)
+    camtoworld = runner.parser.camtoworlds
+    # positions = camtoworld[:, :3, 3]
+    # lookat = -camtoworld[:, :3, 2]
+    # up = -camtoworld[:, :3, 1]
+    positions = np.array([-1.0, 1.0, 1.0]) * camtoworld[:, :3, 3]
+    lookat = -camtoworld[:, :3, 2]
+    up = -camtoworld[:, :3, 1]
+    breakpoint()
+    # print("CAMTOWORLD: ", camtoworld)
+    # plu = poses_to_points(camtoworld, 0.1)
+    # print("PLU: ", plu)
 
     if cfg.ckpt is not None:
         # run eval only
