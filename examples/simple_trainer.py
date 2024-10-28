@@ -155,6 +155,9 @@ class Config:
     # Save training images to tensorboard
     tb_save_image: bool = False
 
+    # Save preview image
+    preview_images_path: Optional[str] = None
+
     lpips_net: Literal["vgg", "alex"] = "alex"
 
     def adjust_steps(self, factor: float):
@@ -673,6 +676,11 @@ class Runner:
                     canvas = canvas.reshape(-1, *canvas.shape[2:])
                     self.writer.add_image("train/render", canvas, step)
                 self.writer.flush()
+
+            if data["image_id"].item() == 0 and cfg.preview_images_path:
+                canvas = colors.detach().cpu().numpy()
+                canvas = canvas.reshape(-1, *canvas.shape[2:])
+                imageio.imwrite(os.path.join(cfg.preview_images_path, f"preview_{step:04d}.jpg"), (canvas * 255).clip(0, 255).astype(np.uint8))
 
             # save checkpoint before updating the model
             if step in [i - 1 for i in cfg.save_steps] or step == max_steps - 1:
