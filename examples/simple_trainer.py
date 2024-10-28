@@ -32,8 +32,8 @@ from gsplat.compression import PngCompression
 from gsplat.distributed import cli
 from gsplat.rendering import rasterization
 from gsplat.strategy import DefaultStrategy, MCMCStrategy
-from gsplat.util.lib_bilagrid import BilateralGrid, slice
-from gsplat.util.color_utils import color_correct
+from lib_bilagrid import BilateralGrid, slice
+from color_utils import color_correct
 
 from plyfile import PlyData, PlyElement
 
@@ -88,7 +88,7 @@ class Config:
     # Initial extent of GSs as a multiple of the camera extent. Ignored if using sfm
     init_extent: float = 3.0
     # Degree of spherical harmonics
-    sh_degree: int = 3
+    sh_degree: int = 2
     # Turn on another SH degree every this steps
     sh_degree_interval: int = 1000
     # Initial opacity of GS
@@ -1045,9 +1045,9 @@ def main(local_rank: int, world_rank, world_size: int, cfg: Config):
     print(f"Saving ply at path {cfg.save_ply_path}")
     runner.save_ply(cfg.save_ply_path)
 
-    if not cfg.disable_viewer:
-        print("Viewer running... Ctrl+C to exit.")
-        time.sleep(1000000)
+    # if not cfg.disable_viewer:
+    #     print("Viewer running... Ctrl+C to exit.")
+    #     time.sleep(1000000)
 
 
 if __name__ == "__main__":
@@ -1084,6 +1084,10 @@ if __name__ == "__main__":
         ),
     }
     cfg = tyro.extras.overridable_config_cli(configs)
+    # If config is MCMC, set refine_every to 250
+    if isinstance(cfg.strategy, MCMCStrategy):
+        cfg.strategy.refine_every = 200
+    
     cfg.adjust_steps(cfg.steps_scaler)
 
     # try import extra dependencies
