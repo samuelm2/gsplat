@@ -82,7 +82,7 @@ class Config:
     # Number of training steps
     max_steps: int = 30_000
     # Steps to evaluate the model
-    perform_eval = True
+    disable_eval = False
     eval_steps: List[int] = field(default_factory=lambda: [7_000, 30_000])
     # Steps to save the model
     save_steps: List[int] = field(default_factory=lambda: [7_000, 30_000])
@@ -864,7 +864,7 @@ class Runner:
 
             # eval the full set
             is_eval_step = step in [i - 1 for i in cfg.eval_steps]
-            if cfg.perform_eval and is_eval_step:
+            if not cfg.disable_eval and is_eval_step:
                 self.eval(step)
                 self.render_traj(step)
 
