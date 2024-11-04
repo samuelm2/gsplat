@@ -78,6 +78,7 @@ class Config:
     # Number of training steps
     max_steps: int = 30_000
     # Steps to evaluate the model
+    disable_eval: bool = False
     eval_steps: List[int] = field(default_factory=lambda: [7_000, 30_000])
     # Steps to save the model
     save_steps: List[int] = field(default_factory=lambda: [7_000, 30_000])
@@ -155,6 +156,9 @@ class Config:
     tb_every: int = 100
     # Save training images to tensorboard
     tb_save_image: bool = False
+
+    # Save preview image
+    preview_images_path: Optional[str] = None
 
     lpips_net: Literal["vgg", "alex"] = "alex"
 
@@ -675,6 +679,19 @@ class Runner:
                     self.writer.add_image("train/render", canvas, step)
                 self.writer.flush()
 
+            if data["image_id"].item() == 0 and cfg.preview_images_path:
+                canvas = colors.detach().cpu().numpy()
+                canvas = canvas.reshape(-1, *canvas.shape[2:])
+                # Start of Selection
+                from PIL import Image
+                im = Image.fromarray((canvas * 255).clip(0, 255).astype(np.uint8))
+                im_downscaled = im.resize(
+                    (im.width // 2, im.height // 2), Image.LANCZOS
+                )
+                im_downscaled.save(
+                    os.path.join(cfg.preview_images_path, f"{step:04d}.jpg")
+                )
+
             # save checkpoint before updating the model
             if step in [i - 1 for i in cfg.save_steps] or step == max_steps - 1:
                 mem = torch.cuda.max_memory_allocated() / 1024**3
@@ -757,7 +774,8 @@ class Runner:
                 scheduler.step()
 
             # eval the full set
-            if step in [i - 1 for i in cfg.eval_steps]:
+            is_eval_step = step in [i - 1 for i in cfg.eval_steps]
+            if not cfg.disable_eval and is_eval_step:
                 self.eval(step)
                 self.render_traj(step)
 
