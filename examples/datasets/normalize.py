@@ -29,7 +29,6 @@ def similarity_from_cameras(c2w, strict_scaling=False, center_method="focus"):
         ]
     )
     if c > -1:
-        # print("NOT ROTATING CAMERA AXES")
         R_align = np.eye(3) + skew + (skew @ skew) * 1 / (1 + c)
     else:
         # In the unlikely case the original data has y+ up axis,
@@ -85,10 +84,7 @@ def align_principle_axes(point_cloud):
     # Check orientation of eigenvectors. If the determinant of the eigenvectors is
     # negative, then we need to flip the sign of one of the eigenvectors.
     if np.linalg.det(eigenvectors) < 0:
-        # print("FLIPPING EIGENVECTOR")
         eigenvectors[:, 0] *= -1
-    # else:
-    #     print("NOT FLIPPING EIGENVECTOR")
 
     # Create rotation matrix
     rotation_matrix = eigenvectors.T
