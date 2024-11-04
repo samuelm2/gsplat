@@ -19,7 +19,6 @@ from datasets.traj import (
     generate_interpolated_path,
     generate_ellipse_path_z,
     generate_spiral_path,
-    poses_to_points,
 )
 from torch import Tensor
 from torch.nn.parallel import DistributedDataParallel as DDP
