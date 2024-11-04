@@ -20,7 +20,6 @@ from datasets.traj import (
     generate_ellipse_path_z,
     generate_interpolated_path,
     generate_spiral_path,
-    poses_to_points,
 )
 from fused_ssim import fused_ssim
 from lib_bilagrid import BilateralGrid, color_correct, slice, total_variation_loss
