@@ -20,6 +20,7 @@ from datasets.traj import (
     generate_ellipse_path_z,
     generate_interpolated_path,
     generate_spiral_path,
+    poses_to_points,
 )
 from fused_ssim import fused_ssim
 from lib_bilagrid import BilateralGrid, color_correct, slice, total_variation_loss
@@ -170,7 +171,7 @@ class Config:
     tb_save_image: bool = False
 
     # Save preview image
-    preview_images_path: Optional[str] = None
+    preview_data_path: Optional[str] = None
 
     lpips_net: Literal["vgg", "alex"] = "alex"
 
@@ -294,6 +295,7 @@ class Runner:
         self.local_rank = local_rank
         self.world_size = world_size
         self.device = f"cuda:{local_rank}"
+        self.preview_idx = 0
 
         # Where to dump results.
         os.makedirs(cfg.result_dir, exist_ok=True)
@@ -572,7 +574,6 @@ class Runner:
                     time.sleep(0.01)
                 self.viewer.lock.acquire()
                 tic = time.time()
-
             try:
                 data = next(trainloader_iter)
             except StopIteration:
@@ -720,7 +721,7 @@ class Runner:
                     self.writer.add_image("train/render", canvas, step)
                 self.writer.flush()
 
-            if data["image_id"].item() == 0 and cfg.preview_images_path:
+            if data["image_id"].item() == self.preview_idx and cfg.preview_data_path:
                 canvas = colors.detach().cpu().numpy()
                 canvas = canvas.reshape(-1, *canvas.shape[2:])
                 # Start of Selection
@@ -730,7 +731,7 @@ class Runner:
                     (im.width // 2, im.height // 2), Image.LANCZOS
                 )
                 im_downscaled.save(
-                    os.path.join(cfg.preview_images_path, f"{step:04d}.jpg")
+                    os.path.join(cfg.preview_data_path, f"{step:04d}.jpg")
                 )
 
             # save checkpoint before updating the model
@@ -964,7 +965,53 @@ class Runner:
                 self.writer.add_scalar(f"{stage}/{k}", v, step)
             self.writer.flush()
 
+
+    def save_preview_camera_data_json(self, closest_position, closest_lookat, closest_up):
+        if not self.cfg.preview_data_path:
+            print("No preview data path provided, skipping saving initial camera data")
+            return
+        with open(os.path.join(self.cfg.preview_data_path, "init_camtoworld.json"), "w") as f:
+            json.dump({
+                "lookAt": {
+                    "x": closest_lookat[0],
+                    "y": closest_lookat[1],
+                    "z": closest_lookat[2],
+                },
+                "position": {
+                    "x": closest_position[0],
+                    "y": closest_position[1],
+                    "z": closest_position[2],
+                },
+                "up": {
+                    "x": closest_up[0],
+                    "y": closest_up[1],
+                    "z": closest_up[2],
+                },
+            }, f)
+
     @torch.no_grad()
+    def choose_best_init_camtoworld(self):
+        positions = self.parser.camtoworlds[self.trainset.indices, :3, 3]
+        forwards = self.parser.camtoworlds[self.trainset.indices, :3, 2]
+        lookat_points = positions + forwards
+
+        closest_lookat_idx = np.argmin(np.sum(lookat_points**2, axis=1))
+        closest_lookat = lookat_points[closest_lookat_idx]
+        closest_position = positions[closest_lookat_idx]
+
+        # Scale back the position based on the scene scale
+        closest_position = closest_lookat -forwards[closest_lookat_idx] * (self.scene_scale / 1.5)
+
+        closest_up = -self.parser.camtoworlds[closest_lookat_idx, :3, 1]
+        
+        # The up vector is either 0,0,1 or 0, 0, -1. Choose the one based on the closest's up vector
+        if closest_up[2] > 0:
+            closest_up = np.array([0.0, 0.0, 1.0])
+        else:
+            closest_up = np.array([0.0, 0.0, -1.0])
+
+        return closest_lookat_idx, closest_position, closest_lookat, closest_up
+
     def render_traj(self, step: int):
         """Entry for trajectory rendering."""
         if self.cfg.disable_video:
@@ -1120,6 +1167,10 @@ def main(local_rank: int, world_rank, world_size: int, cfg: Config):
             print("Viewer is disabled in distributed training.")
 
     runner = Runner(local_rank, world_rank, world_size, cfg)
+    if cfg.preview_data_path:
+        preview_idx, closest_position, closest_lookat, closest_up = runner.choose_best_init_camtoworld()
+        runner.preview_idx = preview_idx
+        runner.save_preview_camera_data_json(closest_position, closest_lookat, closest_up)
 
     if cfg.ckpt is not None:
         # run eval only
