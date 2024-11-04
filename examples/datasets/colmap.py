@@ -193,8 +193,6 @@ class Parser:
             points = transform_points(T2, points)
 
             transform = T2 @ T1
-            print(f"final transform: {transform}")
-            print(f"final camtoworlds: {camtoworlds}")
         else:
             transform = np.eye(4)
 
