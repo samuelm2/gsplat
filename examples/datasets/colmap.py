@@ -133,6 +133,10 @@ class Parser:
             ), f"Only perspective and fisheye cameras are supported, got {type_}"
 
             params_dict[camera_id] = params
+            # Temp fix. Memory issue whenever large number of images are undistorted. Setting this to empty disables undistortion.
+            # params_dict[camera_id] = params
+            # params_dict[camera_id] = np.empty(0, dtype=np.float32)
+            # image size
             imsize_dict[camera_id] = (cam.width // factor, cam.height // factor)
             mask_dict[camera_id] = None
         print(
