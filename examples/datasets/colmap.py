@@ -266,7 +266,7 @@ class Parser:
 
         # load one image to check the size. In the case of tanksandtemples dataset, the
         # intrinsics stored in COLMAP corresponds to 2x upsampled images.
-        actual_image = imageio.imread(self.image_paths[0])[..., :3]
+        actual_image = imageio.imread(self.image_paths[0])[..., :4]
         actual_height, actual_width = actual_image.shape[:2]
         colmap_width, colmap_height = self.imsize_dict[self.camera_ids[0]]
         s_height, s_width = actual_height / colmap_height, actual_width / colmap_width
@@ -378,7 +378,7 @@ class Dataset:
 
     def __getitem__(self, item: int) -> Dict[str, Any]:
         index = self.indices[item]
-        image = imageio.imread(self.parser.image_paths[index])[..., :3]
+        image = imageio.imread(self.parser.image_paths[index])[..., :4]
         camera_id = self.parser.camera_ids[index]
         K = self.parser.Ks_dict[camera_id].copy()  # undistorted K
         params = self.parser.params_dict[camera_id]
