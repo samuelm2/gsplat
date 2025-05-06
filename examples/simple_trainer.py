@@ -1,6 +1,7 @@
 import json
 import math
 import os
+import sys
 import time
 from collections import defaultdict
 from dataclasses import dataclass, field
@@ -585,7 +586,7 @@ class Runner:
 
         # Training loop.
         global_tic = time.time()
-        pbar = tqdm.tqdm(range(init_step, max_steps))
+        pbar = tqdm.tqdm(range(init_step, max_steps), file=sys.stdout)
         for step in pbar:
             if not cfg.disable_viewer:
                 while self.viewer.state.status == "paused":
