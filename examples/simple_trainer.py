@@ -179,6 +179,9 @@ class Config:
 
     lpips_net: Literal["vgg", "alex"] = "alex"
 
+    # Maximum number of Gaussians
+    mcmc_max_num_gaussians: int = 1_000_000
+
     def adjust_steps(self, factor: float):
         self.eval_steps = [int(i * factor) for i in self.eval_steps]
         self.save_steps = [int(i * factor) for i in self.save_steps]
@@ -1339,7 +1342,8 @@ if __name__ == "__main__":
     # If config is MCMC, set refine_every to 250
     if isinstance(cfg.strategy, MCMCStrategy):
         cfg.strategy.refine_every = 200
-    
+        cfg.strategy.cap_max = cfg.mcmc_max_num_gaussians
+
     cfg.adjust_steps(cfg.steps_scaler)
 
     # try import extra dependencies
