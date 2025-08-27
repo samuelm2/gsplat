@@ -221,32 +221,10 @@ class Parser:
 
         # Normalize the world space.
         if normalize:
-            T1 = similarity_from_cameras(camtoworlds)
+            T1 = similarity_from_cameras(camtoworlds, no_rotation=True)
             camtoworlds = transform_cameras(T1, camtoworlds)
             points = transform_points(T1, points)
-
-            T2 = align_principal_axes(points)
-            camtoworlds = transform_cameras(T2, camtoworlds)
-            points = transform_points(T2, points)
-
-            transform = T2 @ T1
-
-            # Fix for up side down. We assume more points towards
-            # the bottom of the scene which is true when ground floor is
-            # present in the images.
-            if np.median(points[:, 2]) > np.mean(points[:, 2]):
-                # rotate 180 degrees such that z is flipped
-                T3 = np.array(
-                    [
-                        [1.0, 0.0, 0.0, 0.0],
-                        [0.0, -1.0, 0.0, 0.0],
-                        [0.0, 0.0, -1.0, 0.0],
-                        [0.0, 0.0, 0.0, 1.0],
-                    ]
-                )
-                camtoworlds = transform_cameras(T3, camtoworlds)
-                points = transform_points(T3, points)
-                transform = T3 @ transform
+            transform = T1
         else:
             transform = np.eye(4)
 

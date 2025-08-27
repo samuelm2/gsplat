@@ -1,7 +1,7 @@
 import numpy as np
 
 
-def similarity_from_cameras(c2w, strict_scaling=False, center_method="focus"):
+def similarity_from_cameras(c2w, strict_scaling=False, center_method="focus", no_rotation=False):
     """
     reference: nerf-factory
     Get a similarity transform to normalize dataset
@@ -35,7 +35,9 @@ def similarity_from_cameras(c2w, strict_scaling=False, center_method="focus"):
         # rotate 180-deg about x axis
         R_align = np.array([[-1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]])
 
-    #  R_align = np.eye(3) # DEBUG
+    if no_rotation:
+        R_align = np.eye(3)
+
     R = R_align @ R
     fwds = np.sum(R * np.array([0, 0.0, 1.0]), axis=-1)
     t = (R_align @ t[..., None])[..., 0]
