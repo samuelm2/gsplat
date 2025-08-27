@@ -67,7 +67,7 @@ class Config:
     # A global scaler that applies to the scene size related parameters
     global_scale: float = 1.0
     # Normalize the world space
-    normalize_world_space: bool = True
+    normalize_world_space: bool = False
     # Camera model
     camera_model: Literal["pinhole", "ortho", "fisheye"] = "pinhole"
 
@@ -1085,10 +1085,7 @@ class Runner:
         closest_up = -self.parser.camtoworlds[closest_lookat_idx, :3, 1]
         
         # The up vector is either 0,0,1 or 0, 0, -1. Choose the one based on the closest's up vector
-        if closest_up[2] > 0:
-            closest_up = np.array([0.0, 0.0, 1.0])
-        else:
-            closest_up = np.array([0.0, 0.0, -1.0])
+        closest_up = np.array([0.0, -1.0, 0.0])
 
         return closest_lookat_idx, closest_position, closest_lookat, closest_up
 
