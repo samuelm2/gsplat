@@ -1,6 +1,7 @@
 #include <torch/extension.h>
 
 #include "Ops.h"
+#include "Cameras.h"
 
 PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
 
@@ -8,6 +9,7 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
         .value("PINHOLE", gsplat::CameraModelType::PINHOLE)
         .value("ORTHO", gsplat::CameraModelType::ORTHO)
         .value("FISHEYE", gsplat::CameraModelType::FISHEYE)
+        .value("FTHETA", gsplat::CameraModelType::FTHETA)
         .export_values();
 
     m.def("null", &gsplat::null);
@@ -65,4 +67,38 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
         "rasterize_to_pixels_2dgs_bwd", &gsplat::rasterize_to_pixels_2dgs_bwd
     );
     m.def("rasterize_to_indices_2dgs", &gsplat::rasterize_to_indices_2dgs);
+
+    m.def("projection_ut_3dgs_fused", &gsplat::projection_ut_3dgs_fused);
+    m.def("rasterize_to_pixels_from_world_3dgs_fwd", &gsplat::rasterize_to_pixels_from_world_3dgs_fwd);
+    m.def("rasterize_to_pixels_from_world_3dgs_bwd", &gsplat::rasterize_to_pixels_from_world_3dgs_bwd);
+
+    // Cameras from 3DGUT
+    py::enum_<ShutterType>(m, "ShutterType")
+        .value("ROLLING_TOP_TO_BOTTOM", ShutterType::ROLLING_TOP_TO_BOTTOM)
+        .value("ROLLING_LEFT_TO_RIGHT", ShutterType::ROLLING_LEFT_TO_RIGHT)
+        .value("ROLLING_BOTTOM_TO_TOP", ShutterType::ROLLING_BOTTOM_TO_TOP)
+        .value("ROLLING_RIGHT_TO_LEFT", ShutterType::ROLLING_RIGHT_TO_LEFT)
+        .value("GLOBAL", ShutterType::GLOBAL)
+        .export_values();
+
+    py::class_<UnscentedTransformParameters>(m, "UnscentedTransformParameters")
+        .def(py::init<>())
+        .def_readwrite("alpha", &UnscentedTransformParameters::alpha)
+        .def_readwrite("beta", &UnscentedTransformParameters::beta)
+        .def_readwrite("kappa", &UnscentedTransformParameters::kappa)
+        .def_readwrite("in_image_margin_factor", &UnscentedTransformParameters::in_image_margin_factor)
+        .def_readwrite("require_all_sigma_points_valid", &UnscentedTransformParameters::require_all_sigma_points_valid);
+
+    // FTheta Camera support
+    py::enum_<FThetaCameraDistortionParameters::PolynomialType>(m, "FThetaPolynomialType")
+        .value("PIXELDIST_TO_ANGLE", FThetaCameraDistortionParameters::PolynomialType::PIXELDIST_TO_ANGLE)
+        .value("ANGLE_TO_PIXELDIST", FThetaCameraDistortionParameters::PolynomialType::ANGLE_TO_PIXELDIST)
+        .export_values();
+    py::class_<FThetaCameraDistortionParameters>(m, "FThetaCameraDistortionParameters")
+        .def(py::init<>())
+        .def_readwrite("reference_poly", &FThetaCameraDistortionParameters::reference_poly)
+        .def_readwrite("pixeldist_to_angle_poly", &FThetaCameraDistortionParameters::pixeldist_to_angle_poly)
+        .def_readwrite("angle_to_pixeldist_poly", &FThetaCameraDistortionParameters::angle_to_pixeldist_poly)
+        .def_readwrite("max_angle", &FThetaCameraDistortionParameters::max_angle)
+        .def_readwrite("linear_cde", &FThetaCameraDistortionParameters::linear_cde);
 }
