@@ -684,15 +684,9 @@ class Runner:
                 colors, depths = renders, None
 
             if cfg.use_bilateral_grid:
-                grid_y, grid_x = torch.meshgrid(
-                    (torch.arange(height, device=self.device) + 0.5) / height,
-                    (torch.arange(width, device=self.device) + 0.5) / width,
-                    indexing="ij",
-                )
-                grid_xy = torch.stack([grid_x, grid_y], dim=-1).unsqueeze(0)
                 colors = slice(
                     self.bil_grids,
-                    grid_xy.expand(colors.shape[0], -1, -1, -1),
+                    None,
                     colors,
                     image_ids.unsqueeze(-1),
                 )["rgb"]
