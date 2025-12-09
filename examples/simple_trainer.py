@@ -195,6 +195,8 @@ class Config:
 
     # Maximum number of Gaussians
     mcmc_max_num_gaussians: int = 1_000_000
+    # Refine every N steps for MCMC strategy (if None, uses default of 200)
+    mcmc_refine_every: Optional[int] = None
     # 3DGUT (uncented transform + eval 3D)
     with_ut: bool = False
     with_eval3d: bool = False
@@ -1429,9 +1431,12 @@ if __name__ == "__main__":
         ),
     }
     cfg = tyro.extras.overridable_config_cli(configs)
-    # If config is MCMC, set refine_every to 250
+    # If config is MCMC, set refine_every
     if isinstance(cfg.strategy, MCMCStrategy):
-        cfg.strategy.refine_every = 200
+        if cfg.mcmc_refine_every is not None:
+            cfg.strategy.refine_every = cfg.mcmc_refine_every
+        else:
+            cfg.strategy.refine_every = 200
         cfg.strategy.cap_max = cfg.mcmc_max_num_gaussians
 
     cfg.adjust_steps(cfg.steps_scaler)
