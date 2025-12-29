@@ -1436,7 +1436,7 @@ if __name__ == "__main__":
         if cfg.mcmc_refine_every is not None:
             cfg.strategy.refine_every = cfg.mcmc_refine_every
         else:
-            cfg.strategy.refine_every = 200
+            cfg.strategy.refine_every = 400
         cfg.strategy.cap_max = cfg.mcmc_max_num_gaussians
 
     cfg.adjust_steps(cfg.steps_scaler)
