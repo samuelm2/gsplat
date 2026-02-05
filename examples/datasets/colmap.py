@@ -388,6 +388,32 @@ class Dataset:
             "image": torch.from_numpy(image).float(),
             "image_id": item,  # the index of the image in the dataset
         }
+        
+        # Load per-image training mask if available (for ego-object masking)
+        # Check training_masks/ first (ego-object only for gsplat training)
+        # Then fall back to masks/ (combined SfM masks)
+        image_name = self.parser.image_names[index]
+        
+        per_image_mask = None
+        for mask_dir in ["training_masks", "masks"]:
+            mask_path = os.path.join(self.parser.data_dir, mask_dir, image_name)
+            if not mask_path.endswith(".png"):
+                mask_path = os.path.splitext(mask_path)[0] + ".png"
+            if os.path.exists(mask_path):
+                per_image_mask = cv2.imread(mask_path, cv2.IMREAD_GRAYSCALE)
+                if per_image_mask is not None:
+                    # Debug: print first few mask loads
+                    if index < 3:
+                        masked_pct = (per_image_mask < 127).sum() / per_image_mask.size * 100
+                        print(f"[DEBUG] Loaded mask for {image_name} from {mask_dir}/, {masked_pct:.1f}% masked")
+                    break
+        
+        if per_image_mask is not None:
+            # Resize mask to match image size if needed
+            if per_image_mask.shape[:2] != image.shape[:2]:
+                per_image_mask = cv2.resize(per_image_mask, (image.shape[1], image.shape[0]), interpolation=cv2.INTER_NEAREST)
+            mask = per_image_mask > 127  # Convert to boolean: True = valid, False = masked
+        
         if mask is not None:
             data["mask"] = torch.from_numpy(mask).bool()
 

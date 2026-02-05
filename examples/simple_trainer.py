@@ -154,6 +154,8 @@ class Config:
     opacity_reg: float = 0.0
     # Scale regularization
     scale_reg: float = 0.0
+    # Circularity regularization - encourages spherical Gaussians (reduces sticky floaters)
+    circularity_reg: float = 0.001
 
     # Enable camera optimization.
     pose_opt: bool = False
@@ -311,6 +313,7 @@ def create_splats_with_optimizers(
             eps=1e-15 / math.sqrt(BS),
             # TODO: check betas logic when BS is larger than 10 betas[0] will be zero.
             betas=(1 - BS * (1 - 0.9), 1 - BS * (1 - 0.999)),
+            fused=True
         )
         for name, _, lr in params
     }
@@ -652,6 +655,11 @@ class Runner:
             )
             image_ids = data["image_id"].to(device)
             masks = data["mask"].to(device) if "mask" in data else None  # [1, H, W]
+            
+            # Debug: verify masks are being used
+            if masks is not None and step < 5:
+                masked_pct = (~masks).float().mean() * 100
+                print(f"[DEBUG train step {step}] Mask loaded, {masked_pct:.1f}% masked")
             if cfg.depth_loss:
                 points = data["points"].to(device)  # [1, M, 2]
                 depths_gt = data["depths"].to(device)  # [1, M]
@@ -733,10 +741,25 @@ class Runner:
             )
 
             # loss
-            l1loss = F.l1_loss(colors, pixels)
-            ssimloss = 1.0 - fused_ssim(
-                colors.permute(0, 3, 1, 2), pixels.permute(0, 3, 1, 2), padding="valid"
-            )
+            if masks is not None:
+                # Apply mask to exclude ego-object regions from loss computation
+                # mask: True = valid pixel, False = masked (ego-object)
+                valid_mask = masks.unsqueeze(-1).float()  # [B, H, W, 1]
+                num_valid = valid_mask.sum().clamp(min=1.0)
+                # Masked L1 loss
+                l1loss = (F.l1_loss(colors, pixels, reduction='none') * valid_mask).sum() / num_valid
+                
+                # Masked SSIM loss (approximate - zero out masked regions)
+                masked_colors = colors * valid_mask
+                masked_pixels = pixels * valid_mask
+                ssimloss = 1.0 - fused_ssim(
+                    masked_colors.permute(0, 3, 1, 2), masked_pixels.permute(0, 3, 1, 2), padding="valid"
+                )
+            else:
+                l1loss = F.l1_loss(colors, pixels)
+                ssimloss = 1.0 - fused_ssim(
+                    colors.permute(0, 3, 1, 2), pixels.permute(0, 3, 1, 2), padding="valid"
+                )
             loss = l1loss * (1.0 - cfg.ssim_lambda) + ssimloss * cfg.ssim_lambda
             if cfg.depth_loss:
                 # query depths from depth map
@@ -766,6 +789,16 @@ class Runner:
                 loss += cfg.opacity_reg * torch.sigmoid(self.splats["opacities"]).mean()
             if cfg.scale_reg > 0.0:
                 loss += cfg.scale_reg * torch.exp(self.splats["scales"]).mean()
+            
+            # Circularity regularization - soft-clamped aspect ratio (allows some anisotropy)
+            if cfg.circularity_reg > 0.0:
+                log_scales = self.splats["scales"]  # [N, 3] - already in log-space
+                max_aspect = 3.0  # Allow up to 3:1 ratio without penalty
+                # Compute log aspect ratio: log(max_scale / min_scale)
+                log_aspect_ratio = log_scales.max(dim=-1).values - log_scales.min(dim=-1).values
+                # Only penalize when aspect ratio exceeds threshold
+                circularity_loss = F.relu(log_aspect_ratio - math.log(max_aspect)).pow(2).mean()
+                loss += cfg.circularity_reg * circularity_loss
 
             loss.backward()
 
@@ -1436,7 +1469,8 @@ if __name__ == "__main__":
         if cfg.mcmc_refine_every is not None:
             cfg.strategy.refine_every = cfg.mcmc_refine_every
         else:
-            cfg.strategy.refine_every = 400
+            cfg.strategy.refine_every = 250
+
         cfg.strategy.cap_max = cfg.mcmc_max_num_gaussians
 
     cfg.adjust_steps(cfg.steps_scaler)
