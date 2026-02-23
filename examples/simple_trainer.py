@@ -218,11 +218,9 @@ class Config:
             strategy.refine_start_iter = int(strategy.refine_start_iter * factor)
             strategy.refine_stop_iter = int(strategy.refine_stop_iter * factor)
             strategy.reset_every = int(strategy.reset_every * factor)
-            strategy.refine_every = int(strategy.refine_every * factor)
         elif isinstance(strategy, MCMCStrategy):
             strategy.refine_start_iter = int(strategy.refine_start_iter * factor)
             strategy.refine_stop_iter = int(strategy.refine_stop_iter * factor)
-            strategy.refine_every = int(strategy.refine_every * factor)
         else:
             assert_never(strategy)
 
@@ -1469,7 +1467,7 @@ if __name__ == "__main__":
         if cfg.mcmc_refine_every is not None:
             cfg.strategy.refine_every = cfg.mcmc_refine_every
         else:
-            cfg.strategy.refine_every = 250
+            cfg.strategy.refine_every = 220
 
         cfg.strategy.cap_max = cfg.mcmc_max_num_gaussians
 
